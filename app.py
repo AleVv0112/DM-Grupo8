@@ -69,15 +69,41 @@ def query_bigquery(project_id, query, _parameters=()):
 @st.cache_data(ttl=600)
 def load_top_clubs(project_id, season):
     query = f"""
-        SELECT
-            name,
-            MAX(total_market_value) AS total_market_value,
-            MAX(squad_size) AS squad_size
-        FROM {table_ref(project_id, "clubs")}
-        WHERE last_season = @season
-        GROUP BY name
-                ORDER BY total_market_value DESC, squad_size DESC
-        LIMIT 10
+        WITH club_base AS (
+            SELECT
+                club_id,
+                name,
+                MAX(total_market_value) AS total_market_value,
+                MAX(squad_size) AS squad_size,
+                MAX(SAFE_CAST(net_transfer_record AS FLOAT64))
+                    AS net_transfer_record
+            FROM {table_ref(project_id, "clubs")}
+            WHERE last_season = @season
+            GROUP BY club_id, name
+        )
+        (
+            SELECT
+                name,
+                net_transfer_record,
+                "Mejores" AS category
+            FROM club_base
+            WHERE net_transfer_record IS NOT NULL
+            ORDER BY net_transfer_record DESC
+            LIMIT 5
+        )
+
+        UNION ALL
+
+        (
+            SELECT
+                name,
+                net_transfer_record,
+                "Peores" AS category
+            FROM club_base
+            WHERE net_transfer_record IS NOT NULL
+            ORDER BY net_transfer_record ASC
+            LIMIT 5
+        )
     """
     parameters = (bigquery.ScalarQueryParameter("season", "INT64", season),)
     return query_bigquery(project_id, query, _parameters=parameters)
@@ -169,7 +195,6 @@ if st.sidebar.button("Actualizar", type="primary", use_container_width=True):
     st.session_state.active_season = selected_season
     load_top_clubs.clear()
     load_event_counts.clear()
-    load_player_valuations.clear()
     st.rerun()
 
 season = st.session_state.active_season
@@ -184,28 +209,18 @@ try:
     first_column, second_column = st.columns(2)
 
     with first_column:
-        st.markdown("#### Top 10 clubes")
+        st.markdown("#### Equipos con mejor y peor balance de transferencias")
         if clubs.empty:
-            st.info("No hay clubes para esa temporada.")
+            st.info(
+                "No hay balances de transferencias numéricos para esa temporada. "
+                "Vuelve a ejecutar el pipeline después de actualizar script_main.py."
+            )
         else:
-            has_market_value = clubs["total_market_value"].notna().any()
-            if has_market_value:
-                metric_column = "total_market_value"
-                metric_label = "Valor de mercado"
-                clubs["metric_label"] = clubs[metric_column].map(format_euros)
-            else:
-                metric_column = "squad_size"
-                metric_label = "Tamaño de plantilla"
-                st.info(
-                    "El campo de valor de mercado está vacío en BigQuery; "
-                    "se muestra el tamaño de plantilla."
-                )
-                clubs[metric_column] = pd.to_numeric(
-                    clubs[metric_column], errors="coerce"
-                ).fillna(0)
-                clubs["metric_label"] = clubs[metric_column].map(
-                    lambda value: f"{value:.0f} jugadores"
-                )
+            metric_column = "net_transfer_record"
+            clubs[metric_column] = pd.to_numeric(
+                clubs[metric_column], errors="coerce"
+            )
+            clubs["metric_label"] = clubs[metric_column].map(format_euros)
 
             chart = px.bar(
                 clubs.sort_values(metric_column),
@@ -213,11 +228,15 @@ try:
                 y="name",
                 orientation="h",
                 text="metric_label",
-                labels={metric_column: metric_label, "name": "Club"},
-                color=metric_column,
-                color_continuous_scale="Tealgrn",
+                color="category",
+                labels={
+                    metric_column: "Balance neto de transferencias",
+                    "name": "Club",
+                    "category": "Resultado",
+                },
+                color_discrete_map={"Mejores": "#35b779", "Peores": "#ef6548"},
             )
-            chart.update_layout(coloraxis_showscale=False, height=440)
+            chart.update_layout(height=440)
             st.plotly_chart(chart, use_container_width=True)
 
     with second_column:
