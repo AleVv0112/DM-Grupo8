@@ -1,5 +1,5 @@
 # Football Data Explorer
-
+Link al dataset: https://www.kaggle.com/datasets/davidcariboo/player-scores 
 Aplicacion Streamlit que consulta las tablas del dataset `football_data` en Google BigQuery y muestra tres graficos interactivos.
 
 ## Tablas utilizadas
