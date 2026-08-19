@@ -76,10 +76,10 @@ def load_league_summary(project_id, metric_column):
     query = f"""
         SELECT
             domestic_competition_id,
-            clubs,
-            {selected_metric} AS metric_value
+            AVG({selected_metric}) AS metric_value
         FROM {table_ref(project_id, "clubs_summary")}
         WHERE {selected_metric} IS NOT NULL
+        GROUP BY domestic_competition_id
         ORDER BY metric_value DESC
         LIMIT 10
     """
@@ -185,6 +185,15 @@ st.subheader("Resumen del fútbol en BigQuery")
 
 try:
     league_summary = load_league_summary(project_id, league_metric)
+    league_summary["metric_value"] = pd.to_numeric(
+        league_summary["metric_value"], errors="coerce"
+    )
+    league_summary = (
+        league_summary
+        .dropna(subset=["domestic_competition_id", "metric_value"])
+        .groupby("domestic_competition_id", as_index=False)["metric_value"]
+        .mean()
+    )
     players = load_player_names(project_id)
     event_counts = load_event_counts(project_id, season)
 
