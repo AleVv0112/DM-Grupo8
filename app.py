@@ -67,46 +67,23 @@ def query_bigquery(project_id, query, _parameters=()):
 
 
 @st.cache_data(ttl=600)
-def load_top_clubs(project_id, season):
+def load_league_summary(project_id, metric_column):
+    allowed_metrics = {
+        "Promedio de jugadores por plantilla": "average_squad_size",
+        "Promedio de edad": "average_age",
+    }
+    selected_metric = allowed_metrics[metric_column]
     query = f"""
-        WITH club_base AS (
-            SELECT
-                club_id,
-                name,
-                MAX(total_market_value) AS total_market_value,
-                MAX(squad_size) AS squad_size,
-                MAX(SAFE_CAST(net_transfer_record AS FLOAT64))
-                    AS net_transfer_record
-            FROM {table_ref(project_id, "clubs")}
-            WHERE last_season = @season
-            GROUP BY club_id, name
-        )
-        (
-            SELECT
-                name,
-                net_transfer_record,
-                "Mejores" AS category
-            FROM club_base
-            WHERE net_transfer_record IS NOT NULL
-            ORDER BY net_transfer_record DESC
-            LIMIT 5
-        )
-
-        UNION ALL
-
-        (
-            SELECT
-                name,
-                net_transfer_record,
-                "Peores" AS category
-            FROM club_base
-            WHERE net_transfer_record IS NOT NULL
-            ORDER BY net_transfer_record ASC
-            LIMIT 5
-        )
+        SELECT
+            domestic_competition_id,
+            clubs,
+            {selected_metric} AS metric_value
+        FROM {table_ref(project_id, "clubs_summary")}
+        WHERE {selected_metric} IS NOT NULL
+        ORDER BY metric_value DESC
+        LIMIT 10
     """
-    parameters = (bigquery.ScalarQueryParameter("season", "INT64", season),)
-    return query_bigquery(project_id, query, _parameters=parameters)
+    return query_bigquery(project_id, query)
 
 
 @st.cache_data(ttl=600)
@@ -181,11 +158,16 @@ st.sidebar.header("Filtros")
 st.sidebar.caption(f"Proyecto: {project_id}")
 
 selected_season = st.sidebar.number_input(
-    "Última temporada de clubes",
+    "Temporada de eventos",
     min_value=2000,
     max_value=2030,
     value=2025,
     step=1,
+)
+
+league_metric = st.sidebar.radio(
+    "Métrica de las ligas",
+    ["Promedio de jugadores por plantilla", "Promedio de edad"],
 )
 
 if "active_season" not in st.session_state:
@@ -193,7 +175,7 @@ if "active_season" not in st.session_state:
 
 if st.sidebar.button("Actualizar", type="primary", use_container_width=True):
     st.session_state.active_season = selected_season
-    load_top_clubs.clear()
+    load_league_summary.clear()
     load_event_counts.clear()
     st.rerun()
 
@@ -202,41 +184,34 @@ season = st.session_state.active_season
 st.subheader("Resumen del fútbol en BigQuery")
 
 try:
-    clubs = load_top_clubs(project_id, season)
+    league_summary = load_league_summary(project_id, league_metric)
     players = load_player_names(project_id)
     event_counts = load_event_counts(project_id, season)
 
     first_column, second_column = st.columns(2)
 
     with first_column:
-        st.markdown("#### Equipos con mejor y peor balance de transferencias")
-        if clubs.empty:
+        st.markdown("#### Promedios por liga")
+        if league_summary.empty:
             st.info(
-                "No hay balances de transferencias numéricos para esa temporada. "
-                "Vuelve a ejecutar el pipeline después de actualizar script_main.py."
+                "No hay datos de promedio de plantilla o edad en clubs_summary."
             )
         else:
-            metric_column = "net_transfer_record"
-            clubs[metric_column] = pd.to_numeric(
-                clubs[metric_column], errors="coerce"
-            )
-            clubs["metric_label"] = clubs[metric_column].map(format_euros)
-
             chart = px.bar(
-                clubs.sort_values(metric_column),
-                x=metric_column,
-                y="name",
+                league_summary.sort_values("metric_value"),
+                x="metric_value",
+                y="domestic_competition_id",
                 orientation="h",
-                text="metric_label",
-                color="category",
+                text="metric_value",
+                color="metric_value",
                 labels={
-                    metric_column: "Balance neto de transferencias",
-                    "name": "Club",
-                    "category": "Resultado",
+                    "metric_value": league_metric,
+                    "domestic_competition_id": "Liga",
                 },
-                color_discrete_map={"Mejores": "#35b779", "Peores": "#ef6548"},
+                color_continuous_scale="Tealgrn",
             )
-            chart.update_layout(height=440)
+            chart.update_traces(texttemplate="%{text:.2f}")
+            chart.update_layout(coloraxis_showscale=False, height=440)
             st.plotly_chart(chart, use_container_width=True)
 
     with second_column:
