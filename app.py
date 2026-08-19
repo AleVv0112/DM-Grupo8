@@ -101,7 +101,9 @@ def load_player_valuations(project_id, player_id):
           AND market_value_in_eur IS NOT NULL
         ORDER BY date
     """
-    parameters = (bigquery.ScalarQueryParameter("player_id", "INT64", player_id),)
+    parameters = (
+        bigquery.ScalarQueryParameter("player_id", "INT64", int(player_id)),
+    )
     result = query_bigquery(project_id, query, _parameters=parameters)
     result["date"] = pd.to_datetime(result["date"], errors="coerce")
     return result.dropna(subset=["date"])
@@ -147,13 +149,24 @@ except Exception as error:
 st.sidebar.header("Filtros")
 st.sidebar.caption(f"Proyecto: {project_id}")
 
-season = st.sidebar.number_input(
+selected_season = st.sidebar.number_input(
     "Última temporada de clubes",
     min_value=2000,
     max_value=2030,
     value=2025,
     step=1,
 )
+
+if "active_season" not in st.session_state:
+    st.session_state.active_season = selected_season
+
+if st.sidebar.button("Actualizar", type="primary", use_container_width=True):
+    st.session_state.active_season = selected_season
+    load_top_clubs.clear()
+    load_player_valuations.clear()
+    st.rerun()
+
+season = st.session_state.active_season
 
 st.subheader("Resumen del fútbol en BigQuery")
 
