@@ -60,7 +60,6 @@ def table_ref(project_id, table_name):
     return f"`{project_id}.{DATASET_NAME}.{table_name}`"
 
 
-@st.cache_data(ttl=600)
 def query_bigquery(project_id, query, _parameters=()):
     client = get_bigquery_client(project_id)
     job_config = bigquery.QueryJobConfig(query_parameters=list(_parameters))
@@ -70,9 +69,13 @@ def query_bigquery(project_id, query, _parameters=()):
 @st.cache_data(ttl=600)
 def load_top_clubs(project_id, season):
     query = f"""
-        SELECT name, total_market_value, squad_size
+        SELECT
+            name,
+            MAX(total_market_value) AS total_market_value,
+            MAX(squad_size) AS squad_size
         FROM {table_ref(project_id, "clubs")}
         WHERE last_season = @season
+        GROUP BY name
                 ORDER BY total_market_value DESC, squad_size DESC
         LIMIT 10
     """
@@ -91,7 +94,6 @@ def load_player_names(project_id):
     return query_bigquery(project_id, query)
 
 
-@st.cache_data(ttl=600)
 def load_player_valuations(project_id, player_id):
     query = f"""
         SELECT date, market_value_in_eur
@@ -235,9 +237,13 @@ try:
             st.plotly_chart(chart, use_container_width=True)
 
     st.markdown("#### Evolución del valor de un jugador")
-    player_options = dict(zip(players["name"], players["player_id"]))
+    player_options = {
+        f"{row.name} (ID: {int(row.player_id)})": int(row.player_id)
+        for row in players.itertuples(index=False)
+    }
     selected_player = st.selectbox("Jugador", list(player_options))
-    valuations = load_player_valuations(project_id, player_options[selected_player])
+    selected_player_id = player_options[selected_player]
+    valuations = load_player_valuations(project_id, selected_player_id)
 
     if valuations.empty:
         st.info("No hay valoraciones históricas para este jugador.")
