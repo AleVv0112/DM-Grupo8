@@ -138,7 +138,6 @@ def format_euros(value):
 
 
 st.title("Football Data Explorer")
-st.caption("Exploración interactiva de las tablas almacenadas en Google BigQuery")
 
 try:
     project_id = get_project_id()
@@ -155,7 +154,6 @@ except Exception as error:
     st.stop()
 
 st.sidebar.header("Filtros")
-st.sidebar.caption(f"Proyecto: {project_id}")
 
 selected_season = st.sidebar.number_input(
     "Temporada de eventos",
