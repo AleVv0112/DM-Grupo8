@@ -61,9 +61,9 @@ def table_ref(project_id, table_name):
 
 
 @st.cache_data(ttl=600)
-def query_bigquery(project_id, query, parameters=()):
+def query_bigquery(project_id, query, _parameters=()):
     client = get_bigquery_client(project_id)
-    job_config = bigquery.QueryJobConfig(query_parameters=list(parameters))
+    job_config = bigquery.QueryJobConfig(query_parameters=list(_parameters))
     return client.query(query, job_config=job_config).result().to_dataframe()
 
 
@@ -78,7 +78,7 @@ def load_top_clubs(project_id, season):
         LIMIT 10
     """
     parameters = (bigquery.ScalarQueryParameter("season", "INT64", season),)
-    return query_bigquery(project_id, query, parameters)
+    return query_bigquery(project_id, query, _parameters=parameters)
 
 
 @st.cache_data(ttl=600)
@@ -102,7 +102,7 @@ def load_player_valuations(project_id, player_id):
         ORDER BY date
     """
     parameters = (bigquery.ScalarQueryParameter("player_id", "INT64", player_id),)
-    result = query_bigquery(project_id, query, parameters)
+    result = query_bigquery(project_id, query, _parameters=parameters)
     result["date"] = pd.to_datetime(result["date"], errors="coerce")
     return result.dropna(subset=["date"])
 
